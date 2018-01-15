@@ -3,50 +3,44 @@ from subprocess import Popen, PIPE, STDOUT
 from threading import Thread
 
 
-class ShellExecRun(sublime_plugin.TextCommand):
-  def run(self, edit, **args):
-    # self.args = args
+# class ShellExecRun(sublime_plugin.TextCommand):
+#   def run(self, edit, **args):
+#     # self.args = args
 
-    # if self.args.get('debug'):
-    #   print("\n\n>>>>>>>>>>>>>>>>>> Start Shell Exec Debug:")
+#     # if self.args.get('debug'):
+#     #   print("\n\n>>>>>>>>>>>>>>>>>> Start Shell Exec Debug:")
 
-    # if not args.get("command"):
-    #   args["command"] = ""
+#     # if not args.get("command"):
+#     #   args["command"] = ""
 
-    if args.get("command"):
-      ShellExec(args, self.view).run_shell_command(args["command"])
+#     if args.get("command"):
+#       ShellExec(args, self.view).run_shell_command(args["command"])
 
 class ShellExecOpen(sublime_plugin.TextCommand):
   def __init__(self, edit):
     sublime_plugin.TextCommand.__init__(self, edit);
+
     self.shell_exec = None
-    pass
 
   def run(self, edit, **args):
 
     # if args.get('debug'):
     #   print("\n\n>>>>>>>>>>>>>>>>>> Start Shell Exec Debug:")
 
-    # command = ""
-
-    # if args.get("command"):
-    #   command = ShellExec.command_variables(args, self.view, args["command"], False)
-
     def runShellExec(user_command):
       if self.shell_exec == None:
-        self.shell_exec = ShellExec(args, self.view)
+        self.shell_exec = ShellExec(self.view)
       self.shell_exec.run_shell_command(user_command)
 
-    sublime.active_window().show_input_panel('shell', '', runShellExec, None, None)
+    sublime.active_window().show_input_panel('Shell Exec', '', runShellExec, None, None)
 
 class ShellExecViewInsertCommand(sublime_plugin.TextCommand):
   def run(self, edit, pos, text):
     self.view.insert(edit, pos, text)
 
 class ShellExec:
-  def __init__(self, args, view):
+  def __init__(self, view):
 
-    self.args = args
     self.view = view
     self.output_view = None
     self.panel_output = None
@@ -102,12 +96,6 @@ class ShellExec:
     # else:
     #   pure_command = command
 
-    if self.get_setting('context') == 'project_folder':
-      if 'folder' in sublime.active_window().extract_variables():
-        command = "cd '" + sublime.active_window().extract_variables()['folder'] + "' && " + command
-    if self.get_setting('context') == 'file_folder':
-      if 'file_path' in sublime.active_window().extract_variables():
-        command = "cd '" + sublime.active_window().extract_variables()['file_path'] + "' && " + command
 
     # sublime_shell_source = ''
 
@@ -163,23 +151,35 @@ class ShellExec:
 
     self.shell_exec_debug("run command: " + command)
 
+    full_command = command
+
+    if self.get_setting('context') == 'project_folder':
+      if 'folder' in sublime.active_window().extract_variables():
+        full_command = "cd '" + sublime.active_window().extract_variables()['folder'] + "' && " + command
+    if self.get_setting('context') == 'file_folder':
+      if 'file_path' in sublime.active_window().extract_variables():
+        full_command = "cd '" + sublime.active_window().extract_variables()['file_path'] + "' && " + command
+
+
     self.shell_exec_debug('create Popen: executable=' + self.get_setting('executable'))
 
     stderr = STDOUT
-    # cmd_line = self.get_setting('executable').split()
-    cmd_line = [self.get_setting('executable')]
+
+    cmd_line = self.get_setting('executable').split()
     cmd_line.extend(['--login', '-c'])
-    cmd_line.append(command)
+    cmd_line.append(full_command)
 
     console_command = Popen(cmd_line, shell=False, stderr=stderr, stdout=PIPE)
+
+    self.increment_output(" >  " + command + "\n\n")
 
     self.shell_exec_debug('waiting for stdout...')
 
 
-    stdout_fd = io.TextIOWrapper(console_command.stdout, self.get_setting('encoding'))
+    cmd_stdout_fd = io.TextIOWrapper(console_command.stdout, self.get_setting('encoding'))
 
     while True:
-      output = stdout_fd.readline(1024)
+      output = cmd_stdout_fd.readline(1024)
       if output == '':
         break
 
@@ -195,8 +195,6 @@ class ShellExec:
     sublime.status_message('Shell Exec | Done! > ' + command[0:60])
 
   def get_setting(self, name):
-    if self.args.get(name):
-      return self.args[name]
 
     settings = sublime.load_settings('Preferences.sublime-settings')
     if settings.get('shell_exec_' + name):

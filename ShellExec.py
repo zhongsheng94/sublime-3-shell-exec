@@ -1,4 +1,4 @@
-import sys, io, time, sublime, sublime_plugin, re
+import os, sys, io, time, sublime, sublime_plugin, re
 from subprocess import Popen, PIPE, STDOUT
 from threading import Thread
 

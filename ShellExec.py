@@ -153,11 +153,9 @@ class ShellExec:
 
     full_command = command
 
-    if self.get_setting('context') == 'project_folder':
-      if 'folder' in sublime.active_window().extract_variables():
+    if self.get_setting('context') == 'project_folder' and 'folder' in sublime.active_window().extract_variables():
         full_command = "cd '" + sublime.active_window().extract_variables()['folder'] + "' && " + command
-    if self.get_setting('context') == 'file_folder':
-      if 'file_path' in sublime.active_window().extract_variables():
+    if self.get_setting('context') == 'file_folder' and 'file_path' in sublime.active_window().extract_variables():
         full_command = "cd '" + sublime.active_window().extract_variables()['file_path'] + "' && " + command
 
 
@@ -169,14 +167,22 @@ class ShellExec:
     cmd_line.extend(['--login', '-c'])
     cmd_line.append(full_command)
 
-    console_command = Popen(cmd_line, shell=False, stderr=stderr, stdout=PIPE)
+    encoding = self.get_setting('encoding')
+    if encoding:
+      env = os.environ.copy()
+      if 'LANG' in env:
+        env['LANG'] = env['LANG'].split('.')[0] + '.' + encoding.upper()
+      else:
+        env['LANG'] = 'en_US.' + encoding.upper()
+
+    console_command = Popen(cmd_line, shell=False, env=env, stderr=stderr, stdout=PIPE)
 
     self.increment_output(" >  " + command + "\n\n")
 
     self.shell_exec_debug('waiting for stdout...')
 
 
-    cmd_stdout_fd = io.TextIOWrapper(console_command.stdout, self.get_setting('encoding'))
+    cmd_stdout_fd = io.TextIOWrapper(console_command.stdout, encoding)
 
     while True:
       output = cmd_stdout_fd.readline(1024)

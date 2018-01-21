@@ -16,34 +16,30 @@ from threading import Thread
 #     if args.get("command"):
 #       ShellExec(args, self.view).run_shell_command(args["command"])
 
-class ShellExecOpen(sublime_plugin.TextCommand):
-  def __init__(self, edit):
-    sublime_plugin.TextCommand.__init__(self, edit);
-
-    self.shell_exec = None
-
-  def run(self, edit, **args):
-
-    # if args.get('debug'):
-    #   print("\n\n>>>>>>>>>>>>>>>>>> Start Shell Exec Debug:")
-
-    def runShellExec(user_command):
-      if self.shell_exec == None:
-        self.shell_exec = ShellExec(self.view)
-      self.shell_exec.run_shell_command(user_command)
-
-    sublime.active_window().show_input_panel('Shell Exec', '', runShellExec, None, None)
-
 class ShellExecViewInsertCommand(sublime_plugin.TextCommand):
   def run(self, edit, pos, text):
     self.view.insert(edit, pos, text)
 
+class ShellExecOpen(sublime_plugin.TextCommand):
+  def __init__(self, edit):
+    sublime_plugin.TextCommand.__init__(self, edit);
+    self.output_view = None
+
+  def run(self, edit, **args):
+
+    def runShellExec(user_command):
+      if not (self.output_view and self.output_view in self.view.window().views()):
+        self.output_view = sublime.active_window().new_file()
+      ShellExec(self.view, self.output_view).run_shell_command(user_command)
+
+    sublime.active_window().show_input_panel('Shell Exec', '', runShellExec, None, None)
+
 class ShellExec:
-  def __init__(self, view):
+
+  def __init__(self, view, output_view):
 
     self.view = view
-    self.output_view = None
-    self.panel_output = None
+    self.output_view = output_view
 
   def shell_exec_debug(self, text_message):
     if self.get_setting('debug'):
@@ -84,7 +80,7 @@ class ShellExec:
         # if ShellExec.get_setting('debug', args):
         #   print(path + ' error: ' + str(sys.exc_info()[0]))
 
-  def run_shell_command(self, command):
+  def run_shell_command(self, command, args=None):
 
     command = sublime.expand_variables(command, sublime.active_window().extract_variables())
 
@@ -113,32 +109,30 @@ class ShellExec:
     t = Thread(target=ShellExec.execute_shell_command, args=(self, command))
     t.start()
 
-  def new_output_view(self):
+  def set_output_view(self):
     self.shell_exec_debug('open new empty file: ')
 
-    output_view = sublime.active_window().new_file()
-    output_view.set_name('Shell Exec')
-    output_view.set_scratch(True)
+    self.output_view.set_name('Shell Exec')
+    self.output_view.set_scratch(True)
 
     if self.get_setting('output_syntax'):
       self.shell_exec_debug('set output syntax: ' + self.get_setting('output_syntax'))
 
       if sublime.find_resources(self.get_setting('output_syntax') + '.tmLanguage'):
-        output_view.set_syntax_file(sublime.find_resources(self.get_setting('output_syntax') + '.tmLanguage')[0])
+        self.output_view.set_syntax_file(sublime.find_resources(self.get_setting('output_syntax') + '.tmLanguage')[0])
 
     if self.get_setting('output_word_wrap'):
-      output_view.settings().set('word_wrap', True)
+      self.output_view.settings().set('word_wrap', True)
     else:
-      output_view.settings().set('word_wrap', False)
+      self.output_view.settings().set('word_wrap', False)
 
-    return output_view
+    return self.output_view
 
   def increment_output(self, text):
     if self.get_setting('output') == "file":
-      if not (self.output_view and self.output_view in self.view.window().views()):
-        self.output_view = self.new_output_view()
+        self.set_output_view()
 
-      self.output_view.run_command('shell_exec_view_insert', {'pos': self.output_view.size(), 'text': text})
+    self.output_view.run_command('shell_exec_view_insert', {'pos': self.output_view.size(), 'text': text})
     # elif self.get_setting('output') == "none":
     #   self.panel_output = False
     # else:

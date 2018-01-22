@@ -129,8 +129,7 @@ class ShellExec:
     return self.output_view
 
   def increment_output(self, text):
-    if self.get_setting('output') == "file":
-        self.set_output_view()
+    self.set_output_view()
 
     self.output_view.run_command('shell_exec_view_insert', {'pos': self.output_view.size(), 'text': text})
     # elif self.get_setting('output') == "none":
@@ -140,6 +139,9 @@ class ShellExec:
     #     self.panel_output = True
     #     sublime.active_window().run_command('show_panel', {"panel": "console", "toggle": False})
     #   sys.stdout.write(text)
+
+  def scroll_to_end(self):
+    self.output_view.show(self.output_view.size())
 
   def execute_shell_command(self, command):
 
@@ -185,6 +187,7 @@ class ShellExec:
 
       self.shell_exec_debug('send result to output file.')
       self.increment_output(output)
+      self.scroll_to_end();
 
     self.increment_output('\n\n')
 

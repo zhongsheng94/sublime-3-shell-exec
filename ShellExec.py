@@ -164,8 +164,9 @@ class ShellExec:
     cmd_line.append(full_command)
 
     encoding = self.get_setting('encoding')
+
+    env = os.environ.copy()
     if encoding:
-      env = os.environ.copy()
       if 'LANG' in env:
         env['LANG'] = env['LANG'].split('.')[0] + '.' + encoding.upper()
       else:

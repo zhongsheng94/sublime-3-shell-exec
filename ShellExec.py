@@ -1,208 +1,157 @@
-import os, sys, io, time, sublime, sublime_plugin, re
+import os
+import io
+import sublime
+import sublime_plugin
 from subprocess import Popen, PIPE, STDOUT
 from threading import Thread
 
 
-# class ShellExecRun(sublime_plugin.TextCommand):
-#   def run(self, edit, **args):
-#     # self.args = args
-
-#     # if self.args.get('debug'):
-#     #   print("\n\n>>>>>>>>>>>>>>>>>> Start Shell Exec Debug:")
-
-#     # if not args.get("command"):
-#     #   args["command"] = ""
-
-#     if args.get("command"):
-#       ShellExec(args, self.view).run_shell_command(args["command"])
-
 class ShellExecViewInsertCommand(sublime_plugin.TextCommand):
-  def run(self, edit, pos, text):
-    self.view.insert(edit, pos, text)
+    def run(self, edit, pos, text):
+        self.view.insert(edit, pos, text)
+
 
 class ShellExecOpen(sublime_plugin.TextCommand):
-  def __init__(self, edit):
-    sublime_plugin.TextCommand.__init__(self, edit);
-    self.output_view = None
+    def __init__(self, edit):
+        sublime_plugin.TextCommand.__init__(self, edit)
+        self.output_view = None
 
-  def run(self, edit, **args):
+    def run(self, edit, **args):
 
-    def runShellExec(user_command):
-      if not (self.output_view and self.output_view in self.view.window().views()):
-        self.output_view = sublime.active_window().new_file()
-      ShellExec(self.view, self.output_view).run_shell_command(user_command)
+        def runShellExec(user_command):
+            if not (self.output_view and
+                    self.output_view in self.view.window().views()):
+                self.output_view = sublime.active_window().new_file()
+            ShellExec(self.view, self.output_view).run_shell_command(
+                user_command)
 
-    sublime.active_window().show_input_panel('Shell Exec', '', runShellExec, None, None)
+            sublime.active_window().show_input_panel(
+                'Shell Exec', '', runShellExec, None, None)
+
 
 class ShellExec:
 
-  def __init__(self, view, output_view):
+    def __init__(self, view, output_view):
 
-    self.view = view
-    self.output_view = output_view
+        self.view = view
+        self.output_view = output_view
 
-  def shell_exec_debug(self, text_message):
-    if self.get_setting('debug'):
-      print(text_message)
+    def shell_exec_debug(self, text_message):
+        if self.get_setting('debug'):
+            print(text_message)
 
-  # def command_variables(args, view, command, format=True):
-    # if format and args.get("format"):
-    #   command = args["format"].replace('${input}', command)
+    def run_shell_command(self, command, args=None):
 
-    # for region in view.sel():
-    #   (row,col) = view.rowcol(view.sel()[0].begin())
+        command = sublime.expand_variables(
+            command, sublime.active_window().extract_variables())
 
-    #   command = command.replace('${row}', str(row+1))
-    #   command = command.replace('${region}', view.substr(region))
-    #   break
+        self.shell_exec_debug('new Thread')
 
-    # packages, platform, file, file_path, file_name, file_base_name,
-    # file_extension, folder, project, project_path, project_name,
-    # project_base_name, project_extension.
-    # command = sublime.expand_variables(command, sublime.active_window().extract_variables())
+        t = Thread(target=ShellExec.execute_shell_command,
+                   args=(self, command))
+        t.start()
 
-    # return command
+    def set_output_view(self):
+        self.shell_exec_debug('open new empty file: ')
 
-  # def load_sh_file(source, path, args):
-  #   if(path):
-  #     try:
-  #       with open(path, encoding='utf-8') as f:
-  #         new_source = f.read()
-  #         source += "\n" + new_source +  "\n"
-          # if ShellExec.get_setting('debug', args):
-          #   print(path + ' loaded:')
-          #   print('------------------------------------')
-          #   print(new_source)
-          #   print('------------------------------------')
-      #     return source
-      # except:
-      #   pass
-        # if ShellExec.get_setting('debug', args):
-        #   print(path + ' error: ' + str(sys.exc_info()[0]))
+        self.output_view.set_name('Shell Exec')
+        self.output_view.set_scratch(True)
 
-  def run_shell_command(self, command, args=None):
+        if self.get_setting('output_syntax'):
+            self.shell_exec_debug('set output syntax: ' +
+                                  self.get_setting('output_syntax'))
 
-    command = sublime.expand_variables(command, sublime.active_window().extract_variables())
+            if sublime.find_resources(self.get_setting('output_syntax') +
+                                      '.tmLanguage'):
 
-    # if 'folder' in sublime.active_window().extract_variables():
-    #   if sublime.platform() == 'windows':
-    #     pure_command = command.replace(sublime.active_window().extract_variables()['folder'] + '\\', '')
-    #   else:
-    #     pure_command = command.replace(sublime.active_window().extract_variables()['folder'] + '/', '')
-    # else:
-    #   pure_command = command
+                self.output_view.set_syntax_file(sublime.find_resources(
+                    self.get_setting('output_syntax') + '.tmLanguage')[0])
 
+        if self.get_setting('output_word_wrap'):
+            self.output_view.settings().set('word_wrap', True)
+        else:
+            self.output_view.settings().set('word_wrap', False)
 
-    # sublime_shell_source = ''
+        return self.output_view
 
-    # sh_file_settings = self.get_setting('load_sh_file', True)
-    # sh_file_shortcut = self.get_setting('load_sh_file', False)
+    def increment_output(self, text):
+        self.set_output_view()
 
-    # sublime_shell_source = ShellExec.load_sh_file(sublime_shell_source, sh_file_settings, self.args)
+        self.output_view.run_command('shell_exec_view_insert',
+                                     {'pos': self.output_view.size(),
+                                      'text': text})
 
-    # if sh_file_settings != sh_file_shortcut:
-    #   sublime_shell_source = ShellExec.load_sh_file(sublime_shell_source, sh_file_shortcut, self.args)
+    def scroll_to_end(self):
+        self.output_view.show(self.output_view.size())
 
+    def execute_shell_command(self, command):
 
-    self.shell_exec_debug('new Thread')
+        self.shell_exec_debug("run command: " + command)
 
-    t = Thread(target=ShellExec.execute_shell_command, args=(self, command))
-    t.start()
+        full_command = command
 
-  def set_output_view(self):
-    self.shell_exec_debug('open new empty file: ')
+        if (self.get_setting('context') == 'project_folder' and
+                'folder' in sublime.active_window().extract_variables()):
+            full_command = "cd '" + \
+                sublime.active_window().extract_variables()[
+                    'folder'] + "' && " + command
 
-    self.output_view.set_name('Shell Exec')
-    self.output_view.set_scratch(True)
+        if (self.get_setting('context') == 'file_folder' and
+                'file_path' in sublime.active_window().extract_variables()):
+            full_command = "cd '" + \
+                sublime.active_window().extract_variables()[
+                    'file_path'] + "' && " + command
 
-    if self.get_setting('output_syntax'):
-      self.shell_exec_debug('set output syntax: ' + self.get_setting('output_syntax'))
+        self.shell_exec_debug('create Popen: executable=' +
+                              self.get_setting('executable'))
 
-      if sublime.find_resources(self.get_setting('output_syntax') + '.tmLanguage'):
-        self.output_view.set_syntax_file(sublime.find_resources(self.get_setting('output_syntax') + '.tmLanguage')[0])
+        stderr = STDOUT
 
-    if self.get_setting('output_word_wrap'):
-      self.output_view.settings().set('word_wrap', True)
-    else:
-      self.output_view.settings().set('word_wrap', False)
+        cmd_line = self.get_setting('executable').split()
+        cmd_line.extend(['--login', '-c'])
+        cmd_line.append(full_command)
 
-    return self.output_view
+        encoding = self.get_setting('encoding')
 
-  def increment_output(self, text):
-    self.set_output_view()
+        env = os.environ.copy()
+        if encoding:
+            if 'LANG' in env:
+                env['LANG'] = env['LANG'].split(
+                    '.')[0] + '.' + encoding.upper()
+            else:
+                env['LANG'] = 'en_US.' + encoding.upper()
 
-    self.output_view.run_command('shell_exec_view_insert', {'pos': self.output_view.size(), 'text': text})
-    # elif self.get_setting('output') == "none":
-    #   self.panel_output = False
-    # else:
-    #   if not self.panel_output:
-    #     self.panel_output = True
-    #     sublime.active_window().run_command('show_panel', {"panel": "console", "toggle": False})
-    #   sys.stdout.write(text)
+        console_command = Popen(cmd_line, shell=False,
+                                env=env, stderr=stderr, stdout=PIPE)
 
-  def scroll_to_end(self):
-    self.output_view.show(self.output_view.size())
+        self.increment_output(" >  " + command + "\n\n")
 
-  def execute_shell_command(self, command):
+        self.shell_exec_debug('waiting for stdout...')
 
-    self.shell_exec_debug("run command: " + command)
+        cmd_stdout_fd = io.TextIOWrapper(console_command.stdout, encoding)
 
-    full_command = command
+        while True:
+            output = cmd_stdout_fd.readline(1024)
+            if output == '':
+                break
 
-    if self.get_setting('context') == 'project_folder' and 'folder' in sublime.active_window().extract_variables():
-        full_command = "cd '" + sublime.active_window().extract_variables()['folder'] + "' && " + command
-    if self.get_setting('context') == 'file_folder' and 'file_path' in sublime.active_window().extract_variables():
-        full_command = "cd '" + sublime.active_window().extract_variables()['file_path'] + "' && " + command
+            self.shell_exec_debug('send result to output file.')
+            self.increment_output(output)
+            self.scroll_to_end()
 
+        self.increment_output('\n\n')
 
-    self.shell_exec_debug('create Popen: executable=' + self.get_setting('executable'))
+        self.view.window().focus_view(self.output_view)
 
-    stderr = STDOUT
+        self.shell_exec_debug(">>>>>>>>>>>>>>>>>> Shell Exec Debug Finished!")
 
-    cmd_line = self.get_setting('executable').split()
-    cmd_line.extend(['--login', '-c'])
-    cmd_line.append(full_command)
+        sublime.status_message('Shell Exec | Done! > ' + command[0:60])
 
-    encoding = self.get_setting('encoding')
+    def get_setting(self, name):
 
-    env = os.environ.copy()
-    if encoding:
-      if 'LANG' in env:
-        env['LANG'] = env['LANG'].split('.')[0] + '.' + encoding.upper()
-      else:
-        env['LANG'] = 'en_US.' + encoding.upper()
-
-    console_command = Popen(cmd_line, shell=False, env=env, stderr=stderr, stdout=PIPE)
-
-    self.increment_output(" >  " + command + "\n\n")
-
-    self.shell_exec_debug('waiting for stdout...')
-
-
-    cmd_stdout_fd = io.TextIOWrapper(console_command.stdout, encoding)
-
-    while True:
-      output = cmd_stdout_fd.readline(1024)
-      if output == '':
-        break
-
-      self.shell_exec_debug('send result to output file.')
-      self.increment_output(output)
-      self.scroll_to_end();
-
-    self.increment_output('\n\n')
-
-    self.view.window().focus_view(self.output_view)
-
-    self.shell_exec_debug(">>>>>>>>>>>>>>>>>> Shell Exec Debug Finished!")
-
-    sublime.status_message('Shell Exec | Done! > ' + command[0:60])
-
-  def get_setting(self, name):
-
-    settings = sublime.load_settings('Preferences.sublime-settings')
-    if settings.get('shell_exec_' + name):
-      return settings.get('shell_exec_' + name)
-    else:
-      settings = sublime.load_settings('ShellExec.sublime-settings')
-      return settings.get('shell_exec_' + name)
+        settings = sublime.load_settings('Preferences.sublime-settings')
+        if settings.get('shell_exec_' + name):
+            return settings.get('shell_exec_' + name)
+        else:
+            settings = sublime.load_settings('ShellExec.sublime-settings')
+            return settings.get('shell_exec_' + name)

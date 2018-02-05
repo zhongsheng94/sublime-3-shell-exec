@@ -25,8 +25,8 @@ class ShellExecOpen(sublime_plugin.TextCommand):
             ShellExec(self.view, self.output_view).run_shell_command(
                 user_command)
 
-            sublime.active_window().show_input_panel(
-                'Shell Exec', '', runShellExec, None, None)
+        sublime.active_window().show_input_panel(
+            'Shell Exec', '', runShellExec, None, None)
 
 
 class ShellExec:
@@ -41,9 +41,6 @@ class ShellExec:
             print(text_message)
 
     def run_shell_command(self, command, args=None):
-
-        command = sublime.expand_variables(
-            command, sublime.active_window().extract_variables())
 
         self.shell_exec_debug('new Thread')
 
@@ -86,6 +83,9 @@ class ShellExec:
 
     def execute_shell_command(self, command):
 
+        command = sublime.expand_variables(
+            command, sublime.active_window().extract_variables())
+
         self.shell_exec_debug("run command: " + command)
 
         full_command = command
@@ -107,22 +107,21 @@ class ShellExec:
 
         stderr = STDOUT
 
-        cmd_line = self.get_setting('executable').split()
+        cmd_line = [self.get_setting('executable')]
         cmd_line.extend(['--login', '-c'])
         cmd_line.append(full_command)
 
-        encoding = self.get_setting('encoding')
-
+        lang = self.get_setting('lang')
+        encoding = None
         env = os.environ.copy()
-        if encoding:
-            if 'LANG' in env:
-                env['LANG'] = env['LANG'].split(
-                    '.')[0] + '.' + encoding.upper()
-            else:
-                env['LANG'] = 'en_US.' + encoding.upper()
+        if lang:
+            encoding = lang.split('.')[1].lower()
+            env['LANG'] = lang
 
         console_command = Popen(cmd_line, shell=False,
                                 env=env, stderr=stderr, stdout=PIPE)
+
+        self.view.window().focus_view(self.output_view)
 
         self.increment_output(" >  " + command + "\n\n")
 

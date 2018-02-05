@@ -31,6 +31,8 @@ class ShellExecOpen(sublime_plugin.TextCommand):
 
 class ShellExec:
 
+    view_ctx_map = []
+
     def __init__(self, view, output_view):
 
         self.view = view
@@ -102,6 +104,8 @@ class ShellExec:
                 sublime.active_window().extract_variables()[
                     'file_path'] + "' && " + command
 
+        full_command = "trap 'kill $(jobs -p) 2> /dev/null' EXIT;" + full_command
+
         self.shell_exec_debug('create Popen: executable=' +
                               self.get_setting('executable'))
 
@@ -118,8 +122,11 @@ class ShellExec:
             encoding = lang.split('.')[1].lower()
             env['LANG'] = lang
 
-        console_command = Popen(cmd_line, shell=False,
-                                env=env, stderr=stderr, stdout=PIPE)
+        command_popen = Popen(cmd_line, shell=False,
+                              env=env, stderr=stderr, stdout=PIPE)
+
+        ShellExec.set_view_ctx_map(self.output_view, ShellExecContext(
+            command, command_popen))
 
         self.view.window().focus_view(self.output_view)
 
@@ -127,7 +134,7 @@ class ShellExec:
 
         self.shell_exec_debug('waiting for stdout...')
 
-        cmd_stdout_fd = io.TextIOWrapper(console_command.stdout, encoding)
+        cmd_stdout_fd = io.TextIOWrapper(command_popen.stdout, encoding)
 
         while True:
             output = cmd_stdout_fd.readline(1024)
@@ -154,3 +161,38 @@ class ShellExec:
         else:
             settings = sublime.load_settings('ShellExec.sublime-settings')
             return settings.get('shell_exec_' + name)
+
+    def set_view_ctx_map(view, ctx):
+        for pair in ShellExec.view_ctx_map:
+            if view == pair[0]:
+                pair[1] = ctx
+                return
+        ShellExec.view_ctx_map.append([view, ctx])
+
+
+class ShellExecStop(sublime_plugin.TextCommand):
+
+    def __init__(self, edit):
+        sublime_plugin.TextCommand.__init__(self, edit)
+
+    def run(self, edit, **args):
+        for pair in ShellExec.view_ctx_map:
+            if self.view == pair[0]:
+                exec_ctx = pair[1]
+                exec_ctx.get_command_popen().kill()
+                print(exec_ctx.get_command() + ' stopped!')
+                return
+
+
+class ShellExecContext:
+    """docstring for ShellExecContext"""
+
+    def __init__(self, command, command_popen):
+        self.command = command
+        self.command_popen = command_popen
+
+    def get_command(self):
+        return self.command
+
+    def get_command_popen(self):
+        return self.command_popen

@@ -1,5 +1,8 @@
 import os
 import io
+import platform
+import re
+import signal
 import sublime
 import sublime_plugin
 from subprocess import Popen, PIPE, STDOUT
@@ -104,7 +107,8 @@ class ShellExec:
                 sublime.active_window().extract_variables()[
                     'file_path'] + "' && " + command
 
-        full_command = "trap 'kill $(jobs -p) 2> /dev/null' EXIT;" + full_command
+        full_command = "trap \"jobs -p > 'D:\\pid_file.txt'\" EXIT;" + \
+            full_command
 
         self.shell_exec_debug('create Popen: executable=' +
                               self.get_setting('executable'))
@@ -113,7 +117,7 @@ class ShellExec:
 
         cmd_line = [self.get_setting('executable')]
         cmd_line.extend(['--login', '-c'])
-        cmd_line.append(full_command)
+        cmd_line.append(full_command + ' &')
 
         lang = self.get_setting('lang')
         encoding = None
@@ -126,7 +130,7 @@ class ShellExec:
                               env=env, stderr=stderr, stdout=PIPE)
 
         ShellExec.set_view_ctx_map(self.output_view, ShellExecContext(
-            command, command_popen))
+            'D:\\pid_file.txt'))
 
         self.view.window().focus_view(self.output_view)
 
@@ -178,21 +182,18 @@ class ShellExecStop(sublime_plugin.TextCommand):
     def run(self, edit, **args):
         for pair in ShellExec.view_ctx_map:
             if self.view == pair[0]:
-                exec_ctx = pair[1]
-                exec_ctx.get_command_popen().kill()
-                print(exec_ctx.get_command() + ' stopped!')
-                return
+                for child_pid in pair[1].read_pid_file():
+                    print('kill function still in progress...')
+                    print(str(child_pid) + ' may be pemission needed.')
+                    os.kill(child_pid, signal.SIGTERM)
 
 
 class ShellExecContext:
     """docstring for ShellExecContext"""
 
-    def __init__(self, command, command_popen):
-        self.command = command
-        self.command_popen = command_popen
+    def __init__(self, file_path):
+        self.file_path = file_path
 
-    def get_command(self):
-        return self.command
-
-    def get_command_popen(self):
-        return self.command_popen
+    def read_pid_file(self):
+        with open(self.file_path, 'r') as pid_file:
+            return [int(line) for line in pid_file.read().splitlines()]

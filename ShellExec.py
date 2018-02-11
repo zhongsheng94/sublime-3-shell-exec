@@ -1,7 +1,5 @@
 import os
-import io
-import platform
-import re
+import socket
 import signal
 import sublime
 import sublime_plugin
@@ -34,7 +32,7 @@ class ShellExecOpen(sublime_plugin.TextCommand):
 
 class ShellExec:
 
-    view_ctx_map = []
+    exec_contexts = []
 
     def __init__(self, view, output_view):
 
@@ -88,66 +86,28 @@ class ShellExec:
 
     def execute_shell_command(self, command):
 
-        command = sublime.expand_variables(
-            command, sublime.active_window().extract_variables())
+        self.view.window().focus_view(self.output_view)
+        self.increment_output(" >  " + command + "\n\n")
+        self.shell_exec_debug('waiting for stdout...')
 
-        self.shell_exec_debug("run command: " + command)
+        cmd_line = self.package_cmd_line(command)
 
-        full_command = command
-
-        if (self.get_setting('context') == 'project_folder' and
-                'folder' in sublime.active_window().extract_variables()):
-            full_command = "cd '" + \
-                sublime.active_window().extract_variables()[
-                    'folder'] + "' && " + command
-
-        if (self.get_setting('context') == 'file_folder' and
-                'file_path' in sublime.active_window().extract_variables()):
-            full_command = "cd '" + \
-                sublime.active_window().extract_variables()[
-                    'file_path'] + "' && " + command
-
-        pid_file_name = '\'D:\pid_file.txt\''
-        write_pid_cmd = 'pids="";for each in $(jobs -p);do pids="$pids$each|";done; ps | grep -E "^\\s*(${pids:0:-1})" | awk \'{print $4}\' > ' + pid_file_name
-        full_command = full_command + ' & \n ' + write_pid_cmd
-
+        Popen(cmd_line, shell=False,
+              env=self.get_exec_environment(), stderr=STDOUT, stdout=PIPE)
         self.shell_exec_debug('create Popen: executable=' +
                               self.get_setting('executable'))
 
-        stderr = STDOUT
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.connect(('127.0.0.1', self.get_setting('listen_port')))
 
-        cmd_line = [self.get_setting('executable')]
-        cmd_line.extend(['--login', '-c'])
-        cmd_line.append(full_command)
+        ShellExec.add_context(ShellExecContext(self.output_view, s))
 
-        lang = self.get_setting('lang')
-        encoding = None
-        env = os.environ.copy()
-        if lang:
-            encoding = lang.split('.')[1].lower()
-            env['LANG'] = lang
-
-        command_popen = Popen(cmd_line, shell=False,
-                              env=env, stderr=stderr, stdout=PIPE)
-
-        ShellExec.set_view_ctx_map(self.output_view, ShellExecContext(
-            'D:\\pid_file.txt'))
-
-        self.view.window().focus_view(self.output_view)
-
-        self.increment_output(" >  " + command + "\n\n")
-
-        self.shell_exec_debug('waiting for stdout...')
-
-        cmd_stdout_fd = io.TextIOWrapper(command_popen.stdout, encoding)
-
+        self.shell_exec_debug('send result to output file.')
         while True:
-            output = cmd_stdout_fd.readline(1024)
-            if output == '':
+            output = s.recv(1024)
+            if not output:
                 break
-
-            self.shell_exec_debug('send result to output file.')
-            self.increment_output(output)
+            self.increment_output(str(output, 'gbk'))
             self.scroll_to_end()
 
         self.increment_output('\n\n')
@@ -167,12 +127,39 @@ class ShellExec:
             settings = sublime.load_settings('ShellExec.sublime-settings')
             return settings.get('shell_exec_' + name)
 
-    def set_view_ctx_map(view, ctx):
-        for pair in ShellExec.view_ctx_map:
-            if view == pair[0]:
-                pair[1] = ctx
-                return
-        ShellExec.view_ctx_map.append([view, ctx])
+    def add_context(ctx):
+        if ctx in ShellExec.exec_contexts:
+            ctx_index = ShellExec.exec_contexts.index(ctx)
+            ShellExec.exec_contexts[ctx_index] = ctx
+        else:
+            ShellExec.exec_contexts.append(ctx)
+
+    def package_cmd_line(self, command):
+        sublime_vars = sublime.active_window().extract_variables()
+
+        command = sublime.expand_variables(
+            command, sublime_vars)
+        if (self.get_setting('context') == 'project_folder' and
+                'folder' in sublime_vars):
+            command = "cd '" + \
+                sublime_vars['folder'] + "' && " + command
+
+        if (self.get_setting('context') == 'file_folder' and
+                'file_path' in sublime_vars):
+            command = "cd '" + \
+                sublime_vars['file_path'] + "' && " + command
+
+        lten_port = self.get_setting('listen_port')
+        socat_head = 'socat TCP4-LISTEN:%d,bind=127.0.0.1' % (lten_port)
+        socat_cmd_line = socat_head.split() + ['SYSTEM:' + command]
+        cmd_line = [self.get_setting('executable')] + socat_cmd_line
+        return cmd_line
+
+    def get_exec_environment(self):
+        env = os.environ.copy()
+        extra_env = self.get_setting('environment')
+        env.update(extra_env)
+        return env
 
 
 class ShellExecStop(sublime_plugin.TextCommand):
@@ -181,19 +168,17 @@ class ShellExecStop(sublime_plugin.TextCommand):
         sublime_plugin.TextCommand.__init__(self, edit)
 
     def run(self, edit, **args):
-        for pair in ShellExec.view_ctx_map:
-            if self.view == pair[0]:
-                for child_pid in pair[1].read_pid_file():
-                    print('kill process ' + str(child_pid))
-                    os.kill(child_pid, signal.SIGTERM)
+        for ctx in ShellExec.exec_contexts:
+            if self.view == ctx.view:
+                ctx.socket_fd.close()
 
 
 class ShellExecContext:
     """docstring for ShellExecContext"""
 
-    def __init__(self, file_path):
-        self.file_path = file_path
+    def __init__(self, view, socket_fd):
+        self.view = view
+        self.socket_fd = socket_fd
 
-    def read_pid_file(self):
-        with open(self.file_path, 'r') as pid_file:
-            return [int(line) for line in pid_file.read().splitlines()]
+    def __eq__(self, other):
+        return self.view == other.view

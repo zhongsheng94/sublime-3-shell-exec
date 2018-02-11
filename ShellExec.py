@@ -155,7 +155,7 @@ class ShellExec:
                 sublime_vars['file_path'] + "' && " + command
 
         lten_port = self.get_setting('listen_port')
-        socat_head = 'socat TCP4-LISTEN:%d,bind=127.0.0.1' % (lten_port)
+        socat_head = 'socat TCP4-LISTEN:%d,bind=127.0.0.1,sndbuf=64' % (lten_port)
         socat_cmd_line = socat_head.split() + ['SYSTEM:' + command]
         cmd_line = [self.get_setting('executable')] + socat_cmd_line
         return cmd_line

@@ -107,8 +107,9 @@ class ShellExec:
                 sublime.active_window().extract_variables()[
                     'file_path'] + "' && " + command
 
-        full_command = "trap \"jobs -p > 'D:\\pid_file.txt'\" EXIT;" + \
-            full_command
+        pid_file_name = '\'D:\pid_file.txt\''
+        write_pid_cmd = 'pids="";for each in $(jobs -p);do pids="$pids$each|";done; ps | grep -E "^\\s*(${pids:0:-1})" | awk \'{print $4}\' > ' + pid_file_name
+        full_command = full_command + ' & \n ' + write_pid_cmd
 
         self.shell_exec_debug('create Popen: executable=' +
                               self.get_setting('executable'))
@@ -117,7 +118,7 @@ class ShellExec:
 
         cmd_line = [self.get_setting('executable')]
         cmd_line.extend(['--login', '-c'])
-        cmd_line.append(full_command + ' &')
+        cmd_line.append(full_command)
 
         lang = self.get_setting('lang')
         encoding = None
@@ -183,8 +184,7 @@ class ShellExecStop(sublime_plugin.TextCommand):
         for pair in ShellExec.view_ctx_map:
             if self.view == pair[0]:
                 for child_pid in pair[1].read_pid_file():
-                    print('kill function still in progress...')
-                    print(str(child_pid) + ' may be pemission needed.')
+                    print('kill process ' + str(child_pid))
                     os.kill(child_pid, signal.SIGTERM)
 
 

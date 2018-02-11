@@ -99,17 +99,21 @@ class ShellExec:
 
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         s.connect(('127.0.0.1', self.get_setting('listen_port')))
+        socket_file = s.makefile(encoding=self.get_setting('encoding'))
 
-        ShellExec.add_context(ShellExecContext(self.output_view, s))
+        ShellExec.add_context(ShellExecContext(self.output_view, socket_file, s))
 
         self.shell_exec_debug('send result to output file.')
+
         while True:
-            output = s.recv(1024)
+            output = socket_file.read(1024)
             if not output:
                 break
-            self.increment_output(str(output, 'gbk'))
+            self.increment_output(output)
             self.scroll_to_end()
 
+        socket_file.close()
+        s.close()
         self.increment_output('\n\n')
 
         self.view.window().focus_view(self.output_view)
@@ -171,13 +175,15 @@ class ShellExecStop(sublime_plugin.TextCommand):
         for ctx in ShellExec.exec_contexts:
             if self.view == ctx.view:
                 ctx.socket_fd.close()
+                ctx.socket_file.close()
 
 
 class ShellExecContext:
     """docstring for ShellExecContext"""
 
-    def __init__(self, view, socket_fd):
+    def __init__(self, view, socket_file, socket_fd):
         self.view = view
+        self.socket_file = socket_file
         self.socket_fd = socket_fd
 
     def __eq__(self, other):

@@ -112,8 +112,9 @@ class ShellExec:
             self.increment_output(output)
             self.scroll_to_end()
 
-        socket_file.close()
         s.close()
+        socket_file.close()
+
         self.increment_output('\n\n')
 
         self.view.window().focus_view(self.output_view)

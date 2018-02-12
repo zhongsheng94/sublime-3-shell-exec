@@ -72,8 +72,6 @@ class ShellExec:
         else:
             self.output_view.settings().set('word_wrap', False)
 
-        return self.output_view
-
     def increment_output(self, text):
         self.set_output_view()
 

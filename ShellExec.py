@@ -1,6 +1,6 @@
 import os
 import socket
-import signal
+import random
 import sublime
 import sublime_plugin
 from subprocess import Popen, PIPE, STDOUT
@@ -90,37 +90,56 @@ class ShellExec:
         self.increment_output(" >  " + command + "\n\n")
         self.shell_exec_debug('waiting for stdout...')
 
-        cmd_line = self.package_cmd_line(command)
-
-        Popen(cmd_line, shell=False,
-              env=self.get_exec_environment(), stderr=STDOUT, stdout=PIPE)
-        self.shell_exec_debug('create Popen: executable=' +
-                              self.get_setting('executable'))
-
+        # create tcp socket with 0.2 second connect timeout
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        s.connect(('127.0.0.1', self.get_setting('listen_port')))
-        socket_file = s.makefile(encoding=self.get_setting('encoding'))
+        s.settimeout(1)
 
+        try_count = 0
+        port_range = self.get_setting('port_range')
+        while True:
+            try_count += 1
+            if try_count > 3:
+                self.shell_exec_debug(
+                    'ERROR: failed to start socat for %d times.' % (try_count - 1))
+                return
+
+            lstn_port = random.randint(*port_range)
+            cmd_line = self.package_cmd_line(command, lstn_port)
+            socat = Popen(cmd_line, shell=False,
+                          env=self.get_exec_environment(), stderr=STDOUT, stdout=PIPE)
+            self.shell_exec_debug('INFO: create Popen: executable = ' + str(cmd_line))
+            if socat.poll() is None:
+                try:
+                    s.connect(('127.0.0.1', lstn_port))
+                    self.shell_exec_debug('INFO: connect to port %d successfully' % lstn_port)
+                    break
+                except socket.error as e:
+                    print(e)
+                    self.shell_exec_debug('WARNING: failed to connect port %d.' % lstn_port)
+                    continue
+            else:
+                self.shell_exec_debug(
+                    'WARNING: socat program terminated' +
+                    ' on listening to port %d, try next port...' % lstn_port)
+
+        socket_file = s.makefile(encoding=self.get_setting('encoding'))
         ShellExec.add_context(ShellExecContext(self.output_view, socket_file, s))
 
         self.shell_exec_debug('send result to output file.')
-
         while True:
             output = socket_file.read(1024)
-            if not output:
+            if output == '':
                 break
             self.increment_output(output)
             self.scroll_to_end()
 
+        self.increment_output('\n\n')
+        self.view.window().focus_view(self.output_view)
+
         s.close()
         socket_file.close()
 
-        self.increment_output('\n\n')
-
-        self.view.window().focus_view(self.output_view)
-
         self.shell_exec_debug(">>>>>>>>>>>>>>>>>> Shell Exec Debug Finished!")
-
         sublime.status_message('Shell Exec | Done! > ' + command[0:60])
 
     def get_setting(self, name):
@@ -139,7 +158,7 @@ class ShellExec:
         else:
             ShellExec.exec_contexts.append(ctx)
 
-    def package_cmd_line(self, command):
+    def package_cmd_line(self, command, lstn_port):
         sublime_vars = sublime.active_window().extract_variables()
 
         command = sublime.expand_variables(
@@ -154,9 +173,8 @@ class ShellExec:
             command = "cd '" + \
                 sublime_vars['file_path'] + "' && " + command
 
-        lten_port = self.get_setting('listen_port')
-        socat_head = 'socat TCP4-LISTEN:%d,bind=127.0.0.1,sndbuf=64' % (lten_port)
-        socat_cmd_line = socat_head.split() + ['SYSTEM:' + command]
+        socat_head = 'socat TCP4-LISTEN:%d,bind=127.0.0.1,sndbuf=64' % (lstn_port)
+        socat_cmd_line = socat_head.split() + ['SYSTEM:' + command + ',stderr']
         cmd_line = [self.get_setting('executable')] + socat_cmd_line
         return cmd_line
 
